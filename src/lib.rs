@@ -1,5 +1,4 @@
 // TODO: add # Errors header on functions that apply
-// TODO: more examples (path!, TopicCollection)
 
 #![warn(missing_docs)]
 
