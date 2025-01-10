@@ -259,11 +259,11 @@ macro_rules! builder {
 
 /// Convenient builder used when updating topic properties.
 #[derive(Serialize, Default, Debug, Clone, PartialEq, Eq)]
-pub struct SetPropsBuilder {
+pub struct PropsUpdateMap {
     inner: HashMap<String, Option<serde_json::Value>>,
 }
 
-impl SetPropsBuilder {
+impl PropsUpdateMap {
     /// Creates a new, empty builder.
     ///
     /// This is identical to calling [`Default::default`].
