@@ -130,10 +130,14 @@ impl Client {
     ///
     /// This future will only complete when the client has disconnected from the server.
     pub async fn connect(self) -> Result<(), ConnectError> {
-        let (ws_stream, _) = match self.try_connect("wss", self.options.secure_port).await {
-            Ok(ok) => ok,
-            Err(tungstenite::Error::Io(_)) => self.try_connect("ws", self.options.unsecure_port).await?,
-            Err(err) => return Err(err.into()),
+        let (ws_stream, _) = if let Some(secure_port) = self.options.secure_port {
+            match self.try_connect("wss", secure_port).await {
+                Ok(ok) => ok,
+                Err(tungstenite::Error::Io(_)) => self.try_connect("ws", self.options.unsecure_port).await?,
+                Err(err) => return Err(err.into()),
+            }
+        } else {
+            self.try_connect("ws", self.options.unsecure_port).await?
         };
 
         let (write, read) = ws_stream.split();
@@ -333,10 +337,11 @@ pub struct NewClientOptions {
     ///
     /// Default is `5810`.
     pub unsecure_port: u16,
-    /// The port of the server.
+    /// The port of the server. A value of [`None`] means that an attempt to make a secure
+    /// connection will not be made.
     ///
-    /// Default is 5811`.
-    pub secure_port: u16,
+    /// Default is `5811`.
+    pub secure_port: Option<u16>,
     /// The name of the client.
     ///
     /// Default is `rust-client-{random u16}`
@@ -363,7 +368,7 @@ impl Default for NewClientOptions {
         Self {
             addr: Default::default(),
             unsecure_port: 5810,
-            secure_port: 5811,
+            secure_port: Some(5811),
             name: format!("rust-client-{}", rand::random::<u16>()),
             response_timeout: Duration::from_secs(1),
             ping_interval: Duration::from_millis(200),
