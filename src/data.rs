@@ -42,7 +42,7 @@ pub(crate) struct Unpublish {
 #[derive(Serialize, Debug)]
 pub(crate) struct SetProperties {
     pub name: String,
-    pub update: HashMap<String, Option<String>>,
+    pub update: HashMap<String, Option<serde_json::Value>>,
 }
 
 #[derive(Serialize, Debug)]
@@ -140,7 +140,7 @@ pub struct Properties {
     ///
     /// This should be used for generic properties not officially recognized by a `NetworkTables` server.
     #[serde(flatten)]
-    pub extra: HashMap<String, String>,
+    pub extra: HashMap<String, serde_json::Value>,
 }
 
 /// Options to use when subscribing to a topic.

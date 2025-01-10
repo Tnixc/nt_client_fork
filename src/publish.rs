@@ -156,7 +156,7 @@ impl<T: NetworkTableData> Publisher<T> {
     /// # })
     /// ```
     // TODO: probably replace with custom error
-    pub async fn update_props(&mut self, new_props: HashMap<String, Option<String>>) -> Result<(), broadcast::error::RecvError> {
+    pub async fn update_props(&mut self, new_props: HashMap<String, Option<serde_json::Value>>) -> Result<(), broadcast::error::RecvError> {
         self.ws_sender.send(ServerboundMessage::Text(ServerboundTextData::SetProperties(SetProperties {
             name: self.topic.clone(),
             update: new_props,
@@ -215,18 +215,36 @@ pub enum NewPublisherError {
 
 macro_rules! builder {
     ($lit: literal : [
-        $( #[$s_m: meta ] )* fn $set: ident,
+        $( #[ $gc_m: meta ] )* fn $get_ckd: ident,
+        $( #[ $g_m: meta ] )* fn $get: ident,
+        $( #[ $s_m: meta ] )* fn $set: ident,
         $( #[ $r_m: meta ] )* fn $replace: ident,
-        $( #[$d_m: meta ] )* fn $delete: ident,
+        $( #[ $d_m: meta ] )* fn $delete: ident,
         $( #[ $u_m: meta ] )* fn $unchange: ident,
-    ] : $ty: ty) => {
+    ] : $ty: ty where
+        $as_pat: pat => $as_value: expr,
+        $from_pat: pat => $from_value: expr) => {
+        $( #[ $gc_m ] )*
+        pub fn $get_ckd(&self) -> Option<Option<Option<&$ty>>> {
+            self.get($lit).map(|value| value.map(|$from_pat| $from_value))
+        }
+
+        $( #[ $g_m ] )*
+        pub fn $get(&self) -> Option<Option<&$ty>> {
+            self.get($lit).map(|value| value.map(|$from_pat| {
+                if let Some(value) = $from_value { value }
+                else { panic!("invalid `{}` value", $lit) }
+            }))
+        }
+
         $( #[ $s_m ] )*
         pub fn $set(self, value: Option<$ty>) -> Self {
-            self.set($lit.to_owned(), value.map(|value| value.to_string()))
+            self.set($lit.to_owned(), value.map(|$as_pat| $as_value))
         }
         $( #[ $r_m ] )*
         pub fn $replace(self, value: $ty) -> Self {
-            self.replace($lit.to_owned(), value.to_string())
+            let $as_pat = value;
+            self.replace($lit.to_owned(), $as_value)
         }
         $( #[ $d_m ] )*
         pub fn $delete(self) -> Self {
@@ -242,7 +260,7 @@ macro_rules! builder {
 /// Convenient builder used when updating topic properties.
 #[derive(Serialize, Default, Debug, Clone, PartialEq, Eq)]
 pub struct SetPropsBuilder {
-    inner: HashMap<String, Option<String>>,
+    inner: HashMap<String, Option<serde_json::Value>>,
 }
 
 impl SetPropsBuilder {
@@ -318,19 +336,19 @@ impl SetPropsBuilder {
     /// // - set `persistent` to `true`
     /// // - set `cached` to `true`
     /// // everything else stays unchanged
-    /// let builder = SetPropsBuilder::with_props_unchanged(properties);
+    /// let builder = SetPropsBuilder::with_props_unchange(properties);
     /// ```
     pub fn with_props_unchange(Properties { persistent, retained, cached, extra }: Properties) -> Self {
         macro_rules! replace_or_unchange {
-            ($map: ident += ($name: literal , $val: expr)) => {
-                if let Some(val) = $val { $map.insert($name.to_string(), Some(val.to_string())); };
+            ($map: ident += ($name: literal , $ident: ident = $val: pat => $b: expr)) => {
+                if let Some($val) = $ident { $map.insert($name.to_string(), Some($b)); };
             };
         }
 
         let mut map = HashMap::new();
-        replace_or_unchange!(map += ("persistent", persistent));
-        replace_or_unchange!(map += ("retained", retained));
-        replace_or_unchange!(map += ("cached", cached));
+        replace_or_unchange!(map += ("persistent", persistent = value => serde_json::Value::Bool(value)));
+        replace_or_unchange!(map += ("retained", retained = value => serde_json::Value::Bool(value)));
+        replace_or_unchange!(map += ("cached", cached = value => serde_json::Value::Bool(value)));
 
         map.extend(extra.into_iter().map(|(key, value)| (key, Some(value))));
 
@@ -340,7 +358,7 @@ impl SetPropsBuilder {
     /// Sets a key to a value.
     ///
     /// A value of [`None`] indicates that the key should be deleted on the server's end.
-    pub fn set(mut self, key: String, value: Option<String>) -> Self {
+    pub fn set(mut self, key: String, value: Option<serde_json::Value>) -> Self {
         self.inner.insert(key, value);
         self
     }
@@ -348,7 +366,7 @@ impl SetPropsBuilder {
     /// Replaces a key with a value on the server.
     ///
     /// This is the same as calling `set(key, Some(value))`.
-    pub fn replace(self, key: String, value: String) -> Self {
+    pub fn replace(self, key: String, value: serde_json::Value) -> Self {
         self.set(key, Some(value))
     }
 
@@ -369,6 +387,21 @@ impl SetPropsBuilder {
     }
 
     builder!("persistent": [
+        /// Gets the server-recognized `persistent` property, checking whether it is a [`bool`] or
+        /// not.
+        ///
+        /// See the [`get`][`Self::get`] documentation for more info.
+        ///
+        /// This is the checked version of [`persistent`][`Self::persistent`].
+        fn persistent_checked,
+        /// Gets the server-recognized `persistent` property.
+        ///
+        /// See the [`get`][`Self::get`] documentation for more info.
+        ///
+        /// # Panics
+        ///
+        /// Panics if the `persistent` property is not set to a boolean.
+        fn persistent,
         /// Sets the server-recognized `persistent` property.
         ///
         /// See the [`set`][`Self::set`] documentation for more info.
@@ -385,9 +418,26 @@ impl SetPropsBuilder {
         ///
         /// See the [`unchange`][`Self::unchange`] documentation for more info.
         fn unchange_persistent,
-    ]: bool);
+    ]: bool where
+        bool => serde_json::Value::Bool(bool),
+        value => if let serde_json::Value::Bool(bool) = value { Some(bool) } else { None });
 
     builder!("retained": [
+        /// Gets the server-recognized `retained` property, checking whether it is a [`bool`] or
+        /// not.
+        ///
+        /// See the [`get`][`Self::get`] documentation for more info.
+        ///
+        /// This is the checked version of [`retained`][`Self::retained`].
+        fn retained_checked,
+        /// Gets the server-recognized `retained` property.
+        ///
+        /// See the [`get`][`Self::get`] documentation for more info.
+        ///
+        /// # Panics
+        ///
+        /// Panics if the `retained` property is not set to a boolean.
+        fn retained,
         /// Sets the server-recognized `retained` property.
         ///
         /// See the [`set`][`Self::set`] documentation for more info.
@@ -404,9 +454,27 @@ impl SetPropsBuilder {
         ///
         /// See the [`unchange`][`Self::unchange`] documentation for more info.
         fn unchange_retained,
-    ]: bool);
+    ]: bool where
+        bool => serde_json::Value::Bool(bool),
+        value => if let serde_json::Value::Bool(bool) = value { Some(bool) } else { None });
+
 
     builder!("cached": [
+        /// Gets the server-recognized `cached` property, checking whether it is a [`bool`] or
+        /// not.
+        ///
+        /// See the [`get`][`Self::get`] documentation for more info.
+        ///
+        /// This is the checked version of [`cached`][`Self::cached`].
+        fn cached_checked,
+        /// Gets the server-recognized `cached` property.
+        ///
+        /// See the [`get`][`Self::get`] documentation for more info.
+        ///
+        /// # Panics
+        ///
+        /// Panics if the `cached` property is not set to a boolean.
+        fn cached,
         /// Sets the server-recognized `cached` property.
         ///
         /// See the [`set`][`Self::set`] documentation for more info.
@@ -423,16 +491,18 @@ impl SetPropsBuilder {
         ///
         /// See the [`unchange`][`Self::unchange`] documentation for more info.
         fn unchange_cached,
-    ]: bool);
+    ]: bool where
+        bool => serde_json::Value::Bool(bool),
+        value => if let serde_json::Value::Bool(bool) = value { Some(bool) } else { None });
 
     /// Builds into a map used when updating topic properties.
-    pub fn build(self) -> HashMap<String, Option<String>> {
+    pub fn build(self) -> HashMap<String, Option<serde_json::Value>> {
         self.inner
     }
 }
 
-impl From<HashMap<String, Option<String>>> for SetPropsBuilder {
-    fn from(value: HashMap<String, Option<String>>) -> Self {
+impl From<HashMap<String, Option<serde_json::Value>>> for PropsUpdateMap {
+    fn from(value: HashMap<String, Option<serde_json::Value>>) -> Self {
         Self { inner: value }
     }
 }
