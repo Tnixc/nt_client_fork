@@ -355,6 +355,15 @@ impl PropsUpdateMap {
         Self { inner: map }
     }
 
+    /// Gets a value on the update map.
+    ///
+    /// A value of [`None`] indicates that that value should not be changed on the server.
+    /// A value of [`Some`] ([`None`]) indicates that that value should be deleted on the server.
+    /// A value of [`Some`] ([`Some`]) indicates that that value should be replaced on the server.
+    pub fn get(&self, key: &str) -> Option<Option<&serde_json::Value>> {
+        self.inner.get(key).map(Option::as_ref)
+    }
+
     /// Sets a key to a value.
     ///
     /// A value of [`None`] indicates that the key should be deleted on the server's end.
