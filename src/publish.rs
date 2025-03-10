@@ -33,7 +33,6 @@
 
 use std::{collections::HashMap, fmt::Debug, marker::PhantomData, sync::Arc, time::Duration};
 
-use serde::Serialize;
 use tokio::sync::{broadcast, RwLock};
 use tracing::debug;
 
@@ -128,7 +127,7 @@ impl<T: NetworkTableData> Publisher<T> {
     /// # Examples
     /// ```no_run
     /// use std::time::Duration;
-    /// use nt_client::{publish::SetPropsBuilder, Client};
+    /// use nt_client::{publish::UpdateProps, Client};
     ///
     /// # tokio_test::block_on(async {
     /// let client = Client::new(Default::default());
@@ -144,10 +143,9 @@ impl<T: NetworkTableData> Publisher<T> {
     ///     // - set `retained` to true
     ///     // - delete `arbitrary property`
     ///     // everything else stays unchanged
-    ///     let props = SetPropsBuilder::new()
-    ///         .replace_retained(true)
-    ///         .delete("arbitrary property".to_owned())
-    ///         .build();
+    ///     let props = UpdateProps::new()
+    ///         .set_retained(true)
+    ///         .delete("arbitrary property".to_owned());
     ///
     ///     sub.update_props(props).await.unwrap();
     /// });
@@ -156,10 +154,10 @@ impl<T: NetworkTableData> Publisher<T> {
     /// # })
     /// ```
     // TODO: probably replace with custom error
-    pub async fn update_props(&mut self, new_props: HashMap<String, Option<serde_json::Value>>) -> Result<(), broadcast::error::RecvError> {
+    pub async fn update_props(&mut self, new_props: UpdateProps) -> Result<(), broadcast::error::RecvError> {
         self.ws_sender.send(ServerboundMessage::Text(ServerboundTextData::SetProperties(SetProperties {
             name: self.topic.clone(),
-            update: new_props,
+            update: new_props.into(),
         })).into()).map_err(|_| broadcast::error::RecvError::Closed)?;
 
         recv_until(&mut self.ws_recv, |data| {
@@ -217,61 +215,72 @@ macro_rules! builder {
     ($lit: literal : [
         $( #[ $gc_m: meta ] )* fn $get_ckd: ident,
         $( #[ $g_m: meta ] )* fn $get: ident,
+        $( #[ $u_m: meta ] )* fn $update: ident,
         $( #[ $s_m: meta ] )* fn $set: ident,
-        $( #[ $r_m: meta ] )* fn $replace: ident,
         $( #[ $d_m: meta ] )* fn $delete: ident,
-        $( #[ $u_m: meta ] )* fn $unchange: ident,
+        $( #[ $k_m: meta ] )* fn $keep: ident,
     ] : $ty: ty where
         $as_pat: pat => $as_value: expr,
         $from_pat: pat => $from_value: expr) => {
         $( #[ $gc_m ] )*
-        pub fn $get_ckd(&self) -> Option<Option<Option<&$ty>>> {
-            self.get($lit).map(|value| value.map(|$from_pat| $from_value))
+        pub fn $get_ckd(&self) -> Option<PropUpdate<&$ty>> {
+            match self.get($lit) {
+                PropUpdate::Set($from_pat) => Some(PropUpdate::Set($from_value)),
+                PropUpdate::Set(_) => None,
+                PropUpdate::Delete => Some(PropUpdate::Delete),
+                PropUpdate::Keep => Some(PropUpdate::Keep),
+            }
         }
 
         $( #[ $g_m ] )*
-        pub fn $get(&self) -> Option<Option<&$ty>> {
-            self.get($lit).map(|value| value.map(|$from_pat| {
-                if let Some(value) = $from_value { value }
-                else { panic!("invalid `{}` value", $lit) }
-            }))
+        pub fn $get(&self) -> PropUpdate<&$ty> {
+            match self.$get_ckd() {
+                Some(value) => value,
+                None => panic!("invalid `{}` value", $lit)
+            }
         }
 
-        $( #[ $s_m ] )*
-        pub fn $set(self, value: Option<$ty>) -> Self {
-            self.set($lit.to_owned(), value.map(|$as_pat| $as_value))
+        $( #[ $u_m ] )*
+        pub fn $update(self, value: PropUpdate<$ty>) -> Self {
+            let value = match value {
+                PropUpdate::Set($as_pat) => PropUpdate::Set($as_value),
+                PropUpdate::Delete => PropUpdate::Delete,
+                PropUpdate::Keep => PropUpdate::Keep,
+            };
+            self.update($lit.to_owned(), value)
         }
-        $( #[ $r_m ] )*
-        pub fn $replace(self, value: $ty) -> Self {
+        $( #[ $s_m ] )*
+        pub fn $set(self, value: $ty) -> Self {
             let $as_pat = value;
-            self.replace($lit.to_owned(), $as_value)
+            let value = $as_value;
+            self.set($lit.to_owned(), value)
         }
         $( #[ $d_m ] )*
         pub fn $delete(self) -> Self {
             self.delete($lit.to_owned())
         }
-        $( #[ $u_m ] )*
-        pub fn $unchange(self) -> Self {
-            self.unchange($lit.to_owned())
+        $( #[ $k_m ] )*
+        pub fn $keep(self) -> Self {
+            self.keep($lit.to_owned())
         }
     };
 }
 
-/// Convenient builder used when updating topic properties.
-#[derive(Serialize, Default, Debug, Clone, PartialEq, Eq)]
-pub struct PropsUpdateMap {
+/// Properties to update on a topic.
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
+pub struct UpdateProps {
     inner: HashMap<String, Option<serde_json::Value>>,
 }
 
-impl PropsUpdateMap {
-    /// Creates a new, empty builder.
+impl UpdateProps {
+    /// Creates a new property update. All properties are `kept` by default.
     ///
     /// This is identical to calling [`Default::default`].
     pub fn new() -> Self {
         Default::default()
     }
 
-    /// Creates a new builder updating certain server-recognized properties.
+    /// Creates a property update updating certain server-recognized properties.
     ///
     /// This method differs from [`with_props_unchange`][`Self::with_props_unchange`] because
     /// unlike that method, this method deletes the property if it's [`None`].
@@ -283,7 +292,7 @@ impl PropsUpdateMap {
     ///
     /// # Examples
     /// ```
-    /// use nt_client::{data::Properties, publish::SetPropsBuilder};
+    /// use nt_client::{data::Properties, publish::UpdateProps};
     ///
     /// // properties are:
     /// // - persistent: `true`
@@ -296,22 +305,22 @@ impl PropsUpdateMap {
     /// // - set `cached` to `true`
     /// // - delete `retained`
     /// // everything else stays unchanged
-    /// let builder = SetPropsBuilder::with_props_delete(properties);
+    /// let builder = UpdateProps::with_props_delete(properties);
     /// ```
     pub fn with_props_delete(Properties { persistent, retained, cached, extra }: Properties) -> Self {
-        let mut builder = Self::new()
-            .set_persistent(persistent)
-            .set_retained(retained)
-            .set_cached(cached);
+        let mut update = Self::new()
+            .update_persistent(PropUpdate::from_option_delete(persistent))
+            .update_retained(PropUpdate::from_option_delete(retained))
+            .update_cached(PropUpdate::from_option_delete(cached));
 
         for (key, value) in extra {
-            builder = builder.replace(key, value);
+            update = update.set(key, value);
         }
 
-        builder
+        update
     }
 
-    /// Creates a new builder updating certain server-recognized properties.
+    /// Creates a new property update updating certain server-recognized properties.
     ///
     /// This method differs from [`with_props_delete`][`Self::with_props_delete`] because
     /// unlike that method, this method does not delete the property if it's [`None`]. Rather, it
@@ -324,7 +333,7 @@ impl PropsUpdateMap {
     ///
     /// # Examples
     /// ```
-    /// use nt_client::{data::Properties, publish::SetPropsBuilder};
+    /// use nt_client::{data::Properties, publish::UpdateProps};
     ///
     /// // properties are:
     /// // - persistent: `true`
@@ -336,68 +345,73 @@ impl PropsUpdateMap {
     /// // - set `persistent` to `true`
     /// // - set `cached` to `true`
     /// // everything else stays unchanged
-    /// let builder = SetPropsBuilder::with_props_unchange(properties);
+    /// let builder = UpdateProps::with_props_keep(properties);
     /// ```
-    pub fn with_props_unchange(Properties { persistent, retained, cached, extra }: Properties) -> Self {
-        macro_rules! replace_or_unchange {
-            ($map: ident += ($name: literal , $ident: ident = $val: pat => $b: expr)) => {
-                if let Some($val) = $ident { $map.insert($name.to_string(), Some($b)); };
-            };
+    pub fn with_props_keep(Properties { persistent, retained, cached, extra }: Properties) -> Self {
+        let mut update = Self::new()
+            .update_persistent(PropUpdate::from_option_keep(persistent))
+            .update_retained(PropUpdate::from_option_keep(retained))
+            .update_cached(PropUpdate::from_option_keep(cached));
+
+        for (key, value) in extra {
+            update = update.set(key, value);
         }
 
-        let mut map = HashMap::new();
-        replace_or_unchange!(map += ("persistent", persistent = value => serde_json::Value::Bool(value)));
-        replace_or_unchange!(map += ("retained", retained = value => serde_json::Value::Bool(value)));
-        replace_or_unchange!(map += ("cached", cached = value => serde_json::Value::Bool(value)));
-
-        map.extend(extra.into_iter().map(|(key, value)| (key, Some(value))));
-
-        Self { inner: map }
+        update
     }
 
-    /// Gets a value on the update map.
-    ///
-    /// A value of [`None`] indicates that that value should not be changed on the server.
-    /// A value of [`Some`] ([`None`]) indicates that that value should be deleted on the server.
-    /// A value of [`Some`] ([`Some`]) indicates that that value should be replaced on the server.
-    pub fn get(&self, key: &str) -> Option<Option<&serde_json::Value>> {
-        self.inner.get(key).map(Option::as_ref)
+    /// Gets how a property will update.
+    pub fn get(&self, key: &str) -> PropUpdate<&serde_json::Value> {
+        match self.inner.get(key) {
+            Some(Some(value)) => PropUpdate::Set(value),
+            Some(None) => PropUpdate::Delete,
+            None => PropUpdate::Keep,
+        }
     }
 
-    /// Sets a key to a value.
-    ///
-    /// A value of [`None`] indicates that the key should be deleted on the server's end.
-    pub fn set(mut self, key: String, value: Option<serde_json::Value>) -> Self {
-        self.inner.insert(key, value);
+    /// Updates a property.
+    /// 
+    /// See also:
+    /// - [`set`][`Self::set`]
+    /// - [`delete`][`Self::delete`]
+    /// - [`keep`][`Self::keep`]
+    pub fn update(mut self, key: String, update: PropUpdate<serde_json::Value>) -> Self {
+        match update {
+            PropUpdate::Set(value) => self.inner.insert(key, Some(value)),
+            PropUpdate::Delete => self.inner.insert(key, None),
+            PropUpdate::Keep => self.inner.remove(&key),
+        };
         self
     }
 
-    /// Replaces a key with a value on the server.
+    /// Sets a new value to the property.
     ///
-    /// This is the same as calling `set(key, Some(value))`.
-    pub fn replace(self, key: String, value: serde_json::Value) -> Self {
-        self.set(key, Some(value))
+    /// This is the same as calling `update(key, PropUpdate::Set(value))`.
+    pub fn set(self, key: String, value: serde_json::Value) -> Self {
+        self.update(key, PropUpdate::Set(value))
     }
 
-    /// Deletes a key on the server.
+    /// Deletes a property on the server.
     ///
-    /// This is the same as calling `set(key, None)`.
+    /// This is the same as calling `update(key, PropUpdate::Delete)`.
     pub fn delete(self, key: String) -> Self {
-        self.set(key, None)
+        self.update(key, PropUpdate::Delete)
     }
 
-    /// Makes a key unchanged on the server.
+    /// Keeps a property on the server, leaving its current value unchanged.
     ///
-    /// This differs from [`delete`][`Self::delete`] because internally, this removes the key from
-    /// the update map, while [`delete`][`Self::delete`] sets the key to [`None`].
-    pub fn unchange(mut self, key: String) -> Self {
-        self.inner.remove(&key);
-        self
+    /// By default, all properties are `kept`.
+    ///
+    /// This is the same as calling `update(key, PropUpdate::Keep)`.
+    pub fn keep(self, key: String) -> Self {
+        self.update(key, PropUpdate::Keep)
     }
 
     builder!("persistent": [
         /// Gets the server-recognized `persistent` property, checking whether it is a [`bool`] or
         /// not.
+        ///
+        /// A return value of [`None`] indicates that the `persistent` property is not a [`bool`].
         ///
         /// See the [`get`][`Self::get`] documentation for more info.
         ///
@@ -411,29 +425,31 @@ impl PropsUpdateMap {
         ///
         /// Panics if the `persistent` property is not set to a boolean.
         fn persistent,
+        /// Updates the server-recognized `persistent` property.
+        ///
+        /// See the [`update`][`Self::update`] documentation for more info.
+        fn update_persistent,
         /// Sets the server-recognized `persistent` property.
         ///
         /// See the [`set`][`Self::set`] documentation for more info.
         fn set_persistent,
-        /// Replaces the server-recognized `persistent` property.
-        ///
-        /// See the [`replace`][`Self::replace`] documentation for more info.
-        fn replace_persistent,
         /// Deletes the server-recognized `persistent` property.
         ///
         /// See the [`delete`][`Self::delete`] documentation for more info.
         fn delete_persistent,
-        /// Makes the server-recognized `persistent` property unchanged.
+        /// Keeps the server-recognized `persistent` property.
         ///
-        /// See the [`unchange`][`Self::unchange`] documentation for more info.
-        fn unchange_persistent,
+        /// See the [`keep`][`Self::keep`] documentation for more info.
+        fn keep_persistent,
     ]: bool where
         bool => serde_json::Value::Bool(bool),
-        value => if let serde_json::Value::Bool(bool) = value { Some(bool) } else { None });
+        serde_json::Value::Bool(value) => value);
 
     builder!("retained": [
         /// Gets the server-recognized `retained` property, checking whether it is a [`bool`] or
         /// not.
+        ///
+        /// A return value of [`None`] indicates that the `retained` property is not a [`bool`].
         ///
         /// See the [`get`][`Self::get`] documentation for more info.
         ///
@@ -447,30 +463,32 @@ impl PropsUpdateMap {
         ///
         /// Panics if the `retained` property is not set to a boolean.
         fn retained,
+        /// Updates the server-recognized `retained` property.
+        ///
+        /// See the [`update`][`Self::update`] documentation for more info.
+        fn update_retained,
         /// Sets the server-recognized `retained` property.
         ///
         /// See the [`set`][`Self::set`] documentation for more info.
         fn set_retained,
-        /// Replaces the server-recognized `retained` property.
-        ///
-        /// See the [`replace`][`Self::replace`] documentation for more info.
-        fn replace_retained,
         /// Deletes the server-recognized `retained` property.
         ///
         /// See the [`delete`][`Self::delete`] documentation for more info.
         fn delete_retained,
-        /// Makes the server-recognized `retained` property unchanged.
+        /// Keeps the server-recognized `retained` property.
         ///
-        /// See the [`unchange`][`Self::unchange`] documentation for more info.
-        fn unchange_retained,
+        /// See the [`keep`][`Self::keep`] documentation for more info.
+        fn keep_retained,
     ]: bool where
         bool => serde_json::Value::Bool(bool),
-        value => if let serde_json::Value::Bool(bool) = value { Some(bool) } else { None });
+        serde_json::Value::Bool(value) => value);
 
 
     builder!("cached": [
         /// Gets the server-recognized `cached` property, checking whether it is a [`bool`] or
         /// not.
+        ///
+        /// A return value of [`None`] indicates that the `cached` property is not a [`bool`].
         ///
         /// See the [`get`][`Self::get`] documentation for more info.
         ///
@@ -484,35 +502,65 @@ impl PropsUpdateMap {
         ///
         /// Panics if the `cached` property is not set to a boolean.
         fn cached,
+        /// Updates the server-recognized `cached` property.
+        ///
+        /// See the [`update`][`Self::update`] documentation for more info.
+        fn update_cached,
         /// Sets the server-recognized `cached` property.
         ///
         /// See the [`set`][`Self::set`] documentation for more info.
         fn set_cached,
-        /// Replaces the server-recognized `cached` property.
-        ///
-        /// See the [`replace`][`Self::replace`] documentation for more info.
-        fn replace_cached,
         /// Deletes the server-recognized `cached` property.
         ///
         /// See the [`delete`][`Self::delete`] documentation for more info.
         fn delete_cached,
-        /// Makes the server-recognized `cached` property unchanged.
+        /// Keeps the server-recognized `cached` property.
         ///
-        /// See the [`unchange`][`Self::unchange`] documentation for more info.
-        fn unchange_cached,
+        /// See the [`keep`][`Self::keep`] documentation for more info.
+        fn keep_cached,
     ]: bool where
         bool => serde_json::Value::Bool(bool),
-        value => if let serde_json::Value::Bool(bool) = value { Some(bool) } else { None });
-
-    /// Builds into a map used when updating topic properties.
-    pub fn build(self) -> HashMap<String, Option<serde_json::Value>> {
-        self.inner
-    }
+        serde_json::Value::Bool(value) => value);
 }
 
 impl From<HashMap<String, Option<serde_json::Value>>> for PropsUpdateMap {
     fn from(value: HashMap<String, Option<serde_json::Value>>) -> Self {
         Self { inner: value }
+    }
+}
+
+impl From<UpdateProps> for HashMap<String, Option<serde_json::Value>> {
+    fn from(value: UpdateProps) -> Self {
+        value.inner
+    }
+}
+
+/// An update to a property.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PropUpdate<T> {
+    /// Sets a new value to the property.
+    Set(T),
+    /// Deletes the property.
+    Delete,
+    /// Keeps the property, leaving its value unchanged.
+    Keep,
+}
+
+impl<T> PropUpdate<T> {
+    /// Converts an `Option<T>` to a `PropUpdate<T>`, deleting the property if it is [`None`].
+    pub fn from_option_delete(option: Option<T>) -> Self {
+        match option {
+            Some(t) => Self::Set(t),
+            None => Self::Delete,
+        }
+    }
+
+    /// Converts an `Option<T>` to a `PropUpdate<T>`, keeping the property if it is [`None`].
+    pub fn from_option_keep(option: Option<T>) -> Self {
+        match option {
+            Some(t) => Self::Set(t),
+            None => Self::Keep,
+        }
     }
 }
 

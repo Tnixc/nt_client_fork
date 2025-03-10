@@ -2,7 +2,8 @@
 
 use std::{collections::HashMap, time::Duration};
 
-use nt_client::{data::Properties, publish::SetPropsBuilder, Client};
+use nt_client::{data::Properties, publish::UpdateProps, Client};
+use serde_json::json;
 
 #[tokio::main]
 async fn main() {
@@ -11,7 +12,7 @@ async fn main() {
     let topic = client.topic("/mytopic");
     tokio::spawn(async move {
         let mut extra_props = HashMap::new();
-        extra_props.insert("custom".to_string(), "something".to_string());
+        extra_props.insert("custom".to_string(), json!("something"));
 
         // initial properties are:
         // - cached: true
@@ -22,10 +23,9 @@ async fn main() {
         // after 1 second...
         tokio::time::sleep(Duration::from_secs(1)).await;
 
-        let updated = SetPropsBuilder::new()
-            .replace_persistent(true)
-            .delete("custom".to_string())
-            .build();
+        let updated = UpdateProps::new()
+            .set_persistent(true)
+            .delete("custom".to_string());
 
         // update properties
         // updated properties are:
