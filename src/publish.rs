@@ -523,7 +523,7 @@ impl UpdateProps {
         serde_json::Value::Bool(value) => value);
 }
 
-impl From<HashMap<String, Option<serde_json::Value>>> for PropsUpdateMap {
+impl From<HashMap<String, Option<serde_json::Value>>> for UpdateProps {
     fn from(value: HashMap<String, Option<serde_json::Value>>) -> Self {
         Self { inner: value }
     }
