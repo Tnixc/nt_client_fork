@@ -25,6 +25,7 @@
 //!             },
 //!             Ok(ReceivedMessage::Announced(topic)) => println!("announced topic: {topic:?}"),
 //!             Ok(ReceivedMessage::Unannounced { name, .. }) => println!("unannounced topic: {name}"),
+//!             Ok(ReceivedMessage::UpdateProperties(topic)) => println!("topic {} had its properties updated: {:?}", topic.name(), topic.properties()),
 //!             Err(err) => {
 //!                 eprintln!("got error: {err:?}");
 //!                 break;
