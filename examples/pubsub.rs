@@ -34,6 +34,9 @@ async fn main() {
                 Ok(ReceivedMessage::Unannounced { name, .. }) => {
                     println!("topic {name} unannounced");
                 },
+                Ok(ReceivedMessage::UpdateProperties(topic)) => {
+                    println!("topic {} updated its properties to {:?}", topic.name(), topic.properties());
+                }
                 Err(err) => {
                     eprint!("{err:?}");
                     break;
