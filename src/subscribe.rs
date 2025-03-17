@@ -57,7 +57,7 @@ pub struct Subscriber {
     id: i32,
     options: SubscriptionOptions,
     topic_ids: Arc<RwLock<HashSet<i32>>>,
-    announced_topics: Arc<RwLock<HashMap<i32, AnnouncedTopic>>>,
+    announced_topics: Arc<RwLock<AnnouncedTopics>>,
 
     ws_sender: NTServerSender,
     ws_recv: NTClientReceiver,
@@ -86,7 +86,7 @@ impl Subscriber {
     pub(super) async fn new(
         topics: Vec<String>,
         options: SubscriptionOptions,
-        announced_topics: Arc<RwLock<HashMap<i32, AnnouncedTopic>>>,
+        announced_topics: Arc<RwLock<AnnouncedTopics>>,
         ws_sender: NTServerSender,
         ws_recv: NTClientReceiver,
     ) -> Self {
@@ -96,7 +96,7 @@ impl Subscriber {
 
         let topic_ids = {
             let announced_topics = announced_topics.read().await;
-            announced_topics.values()
+            announced_topics.id_values()
                 .filter(|topic| topic.matches(&topics, &options))
                 .map(|topic| topic.id())
                 .collect()
@@ -124,7 +124,7 @@ impl Subscriber {
             .map(|id| {
                 let announced_topics = self.announced_topics.clone();
                 async move {
-                    (*id, announced_topics.read().await[id].clone())
+                    (*id, announced_topics.read().await.get_from_id(*id).expect("topic exists").clone())
                 }
             });
         join_all(mapped_futures).await.into_iter().collect()
@@ -151,7 +151,7 @@ impl Subscriber {
                         if !contains { return None; };
                         let announced_topic = {
                             let mut topics = announced_topics.write().await;
-                            let topic = topics.get_mut(&id).expect("announced topic before sending updates");
+                            let topic = topics.get_mut_from_id(id).expect("announced topic before sending updates");
 
                             if topic.last_updated().is_some_and(|last_timestamp| last_timestamp > timestamp) { return None; };
                             topic.update(*timestamp);
@@ -162,7 +162,7 @@ impl Subscriber {
                         Some(ReceivedMessage::Updated((announced_topic, data.clone())))
                     },
                     ClientboundData::Text(ClientboundTextData::Announce(ref announce)) => {
-                        let matches = announced_topics.read().await.get(&announce.id).is_some_and(|topic| topic.matches(topics, options));
+                        let matches = announced_topics.read().await.get_from_id(announce.id).is_some_and(|topic| topic.matches(topics, options));
                         if matches {
                             topic_ids.write().await.insert(announce.id);
                             Some(ReceivedMessage::Announced(announce.into()))

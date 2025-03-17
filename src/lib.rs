@@ -34,7 +34,7 @@
 //! [NetworkTables]: https://github.com/wpilibsuite/allwpilib/blob/main/ntcore/doc/networktables4.adoc
 
 use core::panic;
-use std::{collections::{HashMap, VecDeque}, convert::Into, error::Error, fmt::Debug, net::Ipv4Addr, sync::Arc, time::{Duration, Instant}};
+use std::{collections::VecDeque, convert::Into, error::Error, fmt::Debug, net::Ipv4Addr, sync::Arc, time::{Duration, Instant}};
 
 use data::{BinaryData, ClientboundData, ClientboundTextData, ServerboundMessage, Unannounce};
 use error::{ConnectError, ConnectionClosedError, IntoAddrError, PingError, ReceiveMessageError, ReconnectError, SendMessageError, UpdateTimeError};
@@ -42,7 +42,7 @@ use futures_util::{stream::{SplitSink, SplitStream}, Future, SinkExt, StreamExt,
 use time::ext::InstantExt;
 use tokio::{net::TcpStream, select, sync::{broadcast, mpsc, Notify, RwLock}, task::JoinHandle, time::{interval, timeout}};
 use tokio_tungstenite::{tungstenite::{self, http::{Response, Uri}, ClientRequestBuilder, Message}, MaybeTlsStream, WebSocketStream};
-use topic::{collection::TopicCollection, AnnouncedTopic, Topic};
+use topic::{collection::TopicCollection, AnnouncedTopics, Topic};
 use tracing::{debug, error, info};
 
 pub mod error;
@@ -65,7 +65,7 @@ pub struct Client {
     addr: Ipv4Addr,
     options: NewClientOptions,
     time: Arc<RwLock<NetworkTablesTime>>,
-    announced_topics: Arc<RwLock<HashMap<i32, AnnouncedTopic>>>,
+    announced_topics: Arc<RwLock<AnnouncedTopics>>,
 
     send_ws: (NTServerSender, NTServerReceiver),
     recv_ws: (NTClientSender, NTClientReceiver),
@@ -112,7 +112,7 @@ impl Client {
     /// Returns a map of server announced topics for this client.
     ///
     /// This can be safely used asynchronously and across different threads.
-    pub fn announced_topics(&self) -> Arc<RwLock<HashMap<i32, AnnouncedTopic>>> {
+    pub fn announced_topics(&self) -> Arc<RwLock<AnnouncedTopics>> {
         self.announced_topics.clone()
     }
 
@@ -268,7 +268,7 @@ impl Client {
         read: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
         update_time_sender: mpsc::Sender<(Duration, Duration)>,
         pong_send: Arc<Notify>,
-        announced_topics: Arc<RwLock<HashMap<i32, AnnouncedTopic>>>,
+        announced_topics: Arc<RwLock<AnnouncedTopics>>,
         client_sender: NTClientSender,
     ) -> JoinHandle<Result<(), ReceiveMessageError>> {
         tokio::spawn(async move {
@@ -306,11 +306,11 @@ impl Client {
                         match &data {
                             ClientboundData::Text(ClientboundTextData::Announce(announce)) => {
                                 let mut announced_topics = announced_topics.write().await;
-                                announced_topics.insert(announce.id, announce.into());
+                                announced_topics.insert(announce);
                             },
                             ClientboundData::Text(ClientboundTextData::Unannounce(Unannounce { id, .. })) => {
                                 let mut announced_topics = announced_topics.write().await;
-                                announced_topics.remove(id);
+                                announced_topics.remove(unannounce);
                             },
                             // TODO: handle Properties
                             _ => {},

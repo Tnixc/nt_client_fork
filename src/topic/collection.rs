@@ -1,12 +1,12 @@
 //! Collection of topics that can be used to subscribe to multiple topics at once.
 
-use std::{collections::HashMap, fmt::Debug, sync::Arc};
+use std::{fmt::Debug, sync::Arc};
 
 use tokio::sync::RwLock;
 
 use crate::{data::SubscriptionOptions, subscribe::Subscriber, NTClientSender, NTServerSender, NetworkTablesTime};
 
-use super::{AnnouncedTopic, Topic};
+use super::{AnnouncedTopics, Topic};
 
 /// Represents a collection of topics.
 ///
@@ -37,7 +37,7 @@ use super::{AnnouncedTopic, Topic};
 pub struct TopicCollection {
     names: Vec<String>,
     time: Arc<RwLock<NetworkTablesTime>>,
-    announced_topics: Arc<RwLock<HashMap<i32, AnnouncedTopic>>>,
+    announced_topics: Arc<RwLock<AnnouncedTopics>>,
     send_ws: NTServerSender,
     recv_ws: NTClientSender,
 }
@@ -71,7 +71,7 @@ impl TopicCollection {
     pub(crate) fn new(
         names: Vec<String>,
         time: Arc<RwLock<NetworkTablesTime>>,
-        announced_topics: Arc<RwLock<HashMap<i32, AnnouncedTopic>>>,
+        announced_topics: Arc<RwLock<AnnouncedTopics>>,
         send_ws: NTServerSender,
         recv_ws: NTClientSender
     ) -> Self {

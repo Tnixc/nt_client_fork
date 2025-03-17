@@ -55,7 +55,7 @@ macro_rules! path {
 pub struct Topic {
     name: String,
     time: Arc<RwLock<NetworkTablesTime>>,
-    announced_topics: Arc<RwLock<HashMap<i32, AnnouncedTopic>>>,
+    announced_topics: Arc<RwLock<AnnouncedTopics>>,
     send_ws: NTServerSender,
     recv_ws: NTClientSender,
 }
@@ -80,7 +80,7 @@ impl Topic {
     pub(super) fn new(
         name: String,
         time: Arc<RwLock<NetworkTablesTime>>,
-        announced_topics: Arc<RwLock<HashMap<i32, AnnouncedTopic>>>,
+        announced_topics: Arc<RwLock<AnnouncedTopics>>,
         send_ws: NTServerSender,
         recv_ws: NTClientSender,
     ) -> Self {
@@ -182,6 +182,60 @@ impl From<&Announce> for AnnouncedTopic {
             properties: value.properties.clone(),
             last_updated: None,
         }
+    }
+}
+
+/// Represents a list of all server-announced topics.
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
+pub struct AnnouncedTopics {
+    topics: HashMap<i32, AnnouncedTopic>,
+    name_to_id: HashMap<String, i32>,
+}
+
+impl AnnouncedTopics {
+    /// Creates a new, empty list of announced topics.
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub(crate) fn insert(&mut self, announce: &Announce) {
+        self.topics.insert(announce.id, announce.into());
+        self.name_to_id.insert(announce.name.clone(), announce.id);
+    }
+
+    pub(crate) fn remove(&mut self, unannounce: &Unannounce) {
+        self.topics.remove(&unannounce.id);
+        self.name_to_id.remove(&unannounce.name);
+    }
+
+    /// Gets a topic from its id.
+    pub fn get_from_id(&self, id: i32) -> Option<&AnnouncedTopic> {
+        self.topics.get(&id)
+    }
+
+    /// Gets a mutable topic from its id.
+    pub fn get_mut_from_id(&mut self, id: i32) -> Option<&mut AnnouncedTopic> {
+        self.topics.get_mut(&id)
+    }
+
+    /// Gets a topic from its name.
+    pub fn get_from_name(&self, name: &str) -> Option<&AnnouncedTopic> {
+        self.name_to_id.get(name).and_then(|id| self.topics.get(id))
+    }
+
+    /// Gets a mutable topic from its name.
+    pub fn get_mut_from_name(&mut self, name: &str) -> Option<&mut AnnouncedTopic> {
+        self.name_to_id.get(name).and_then(|id| self.topics.get_mut(id))
+    }
+
+    /// Gets a topic id from its name.
+    pub fn get_id(&self, name: &str) -> Option<i32> {
+        self.name_to_id.get(name).copied()
+    }
+
+    /// An iterator visiting all id and topic values in arbitrary order.
+    pub fn id_values(&self) -> std::collections::hash_map::Values<'_, i32, AnnouncedTopic> {
+        self.topics.values()
     }
 }
 
