@@ -161,10 +161,10 @@ impl<T: NetworkTableData> Publisher<T> {
         })).into()).map_err(|_| broadcast::error::RecvError::Closed)?;
 
         recv_until(&mut self.ws_recv, |data| {
-            if let ClientboundData::Text(ClientboundTextData::Properties(PropertiesData { ref name, ack })) = *data {
-                // TODO: create and return Properties
-                if ack.is_some_and(|ack| ack) && name == &self.topic { Some(()) }
-                else { None }
+            if let ClientboundData::Text(ClientboundTextData::Properties(PropertiesData { ref name, .. })) = *data {
+                if name != &self.topic { return None; };
+
+                Some(())
             } else {
                 None
             }

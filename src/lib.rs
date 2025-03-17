@@ -36,7 +36,7 @@
 use core::panic;
 use std::{collections::VecDeque, convert::Into, error::Error, fmt::Debug, net::Ipv4Addr, sync::Arc, time::{Duration, Instant}};
 
-use data::{BinaryData, ClientboundData, ClientboundTextData, ServerboundMessage, Unannounce};
+use data::{BinaryData, ClientboundData, ClientboundTextData, PropertiesData, ServerboundMessage};
 use error::{ConnectError, ConnectionClosedError, IntoAddrError, PingError, ReceiveMessageError, ReconnectError, SendMessageError, UpdateTimeError};
 use futures_util::{stream::{SplitSink, SplitStream}, Future, SinkExt, StreamExt, TryStreamExt};
 use time::ext::InstantExt;
@@ -308,11 +308,37 @@ impl Client {
                                 let mut announced_topics = announced_topics.write().await;
                                 announced_topics.insert(announce);
                             },
-                            ClientboundData::Text(ClientboundTextData::Unannounce(Unannounce { id, .. })) => {
+                            ClientboundData::Text(ClientboundTextData::Unannounce(unannounce)) => {
                                 let mut announced_topics = announced_topics.write().await;
                                 announced_topics.remove(unannounce);
                             },
-                            // TODO: handle Properties
+                            ClientboundData::Text(ClientboundTextData::Properties(PropertiesData { name, update, .. })) => {
+                                let mut announced_topics = announced_topics.write().await;
+                                let Some(topic) = announced_topics.get_mut_from_name(name) else {
+                                    continue;
+                                };
+
+                                let properties = &mut topic.properties;
+                                for (key, value) in update {
+                                    match (key.as_ref(), value) {
+                                        ("persistent", Some(serde_json::Value::Bool(persistent))) => properties.persistent = Some(*persistent),
+                                        ("persistent", None) => properties.persistent = None,
+
+                                        ("retained", Some(serde_json::Value::Bool(retained))) => properties.retained = Some(*retained),
+                                        ("retained", None) => properties.retained = None,
+
+                                        ("cached", Some(serde_json::Value::Bool(cached))) => properties.cached = Some(*cached),
+                                        ("cached", None) => properties.cached = None,
+
+                                        (key, Some(value)) => {
+                                            properties.extra.insert(key.to_owned(), value.clone());
+                                        },
+                                        (key, None) => {
+                                            properties.extra.remove(key);
+                                        },
+                                    };
+                                }
+                            }
                             _ => {},
                         }
 

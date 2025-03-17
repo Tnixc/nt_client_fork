@@ -42,7 +42,7 @@ use futures_util::future::join_all;
 use tokio::sync::{broadcast, RwLock};
 use tracing::debug;
 
-use crate::{data::{BinaryData, ClientboundData, ClientboundTextData, ServerboundMessage, ServerboundTextData, Subscribe, SubscriptionOptions, Unsubscribe}, recv_until_async, topic::AnnouncedTopic, NTClientReceiver, NTServerSender};
+use crate::{data::{BinaryData, ClientboundData, ClientboundTextData, PropertiesData, ServerboundMessage, ServerboundTextData, Subscribe, SubscriptionOptions, Unsubscribe}, recv_until_async, topic::{AnnouncedTopic, AnnouncedTopics}, NTClientReceiver, NTServerSender};
 
 /// A `NetworkTables` subscriber that subscribes to a [`Topic`].
 ///
@@ -173,8 +173,17 @@ impl Subscriber {
                             ReceivedMessage::Unannounced { name: unannounce.name.clone(), id: unannounce.id }
                         })
                     },
-                    // TODO: handle ClientboundTextData::Properties
-                    _ => None,
+                    ClientboundData::Text(ClientboundTextData::Properties(PropertiesData { ref name, .. })) => {
+                        let (contains, id) = {
+                            let id = announced_topics.read().await.get_id(name).expect("announced before properties");
+                            (topic_ids.read().await.contains(&id), id)
+                        };
+                        if !contains { return None; };
+
+                        let topics = announced_topics.read().await;
+                        let topic = topics.get_from_id(id).expect("topic exists").clone();
+                        Some(ReceivedMessage::UpdateProperties(topic))
+                    },
                 }
             }
         }).await
@@ -202,6 +211,8 @@ pub enum ReceivedMessage {
     /// Subscribed topics are any topics that were [`Announced`][`ReceivedMessage::Announced`].
     /// Only the most recent updated value is sent.
     Updated((AnnouncedTopic, rmpv::Value)),
+    /// An announced topic had its properties updated.
+    UpdateProperties(AnnouncedTopic),
     /// An announced topic was unannounced.
     Unannounced {
         /// The name of the topic that was unannounced.

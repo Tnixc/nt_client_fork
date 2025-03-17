@@ -89,7 +89,9 @@ pub(crate) struct Unannounce {
 #[derive(Deserialize, Debug)]
 pub(crate) struct PropertiesData {
     pub name: String,
+    // BUG: this doesn't seem to ever exist
     pub ack: Option<bool>,
+    pub update: HashMap<String, Option<serde_json::Value>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -114,6 +116,7 @@ impl BinaryData {
 /// properties, use the `extra` field.
 ///
 /// Docs taken and summarized from [here](https://github.com/wpilibsuite/allwpilib/blob/main/ntcore/doc/networktables4.adoc#properties).
+// TODO: test if server recognizes non-bool properties
 #[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub struct Properties {

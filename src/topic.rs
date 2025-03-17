@@ -6,7 +6,7 @@ use std::{collections::{HashMap, VecDeque}, fmt::{Debug, Display}, sync::Arc, ti
 
 use tokio::sync::RwLock;
 
-use crate::{data::{r#type::{DataType, NetworkTableData}, Announce, Properties, SubscriptionOptions}, publish::{NewPublisherError, Publisher}, subscribe::Subscriber, NTClientSender, NTServerSender, NetworkTablesTime};
+use crate::{data::{r#type::{DataType, NetworkTableData}, Announce, Properties, SubscriptionOptions, Unannounce}, publish::{NewPublisherError, Publisher}, subscribe::Subscriber, NTClientSender, NTServerSender, NetworkTablesTime};
 
 pub mod collection;
 
@@ -130,7 +130,7 @@ pub struct AnnouncedTopic {
     name: String,
     id: i32,
     r#type: DataType,
-    properties: Properties,
+    pub(crate) properties: Properties,
     last_updated: Option<Duration>,
 }
 
