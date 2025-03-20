@@ -33,9 +33,6 @@
 //!             },
 //!         }
 //!     }
-//!     while let Ok(ReceivedMessage::Updated((_topic, value))) = sub.recv().await {
-//!         println!("topic updated: '{value}'")
-//!     }
 //! });
 //! 
 //! client.connect().await.unwrap();
