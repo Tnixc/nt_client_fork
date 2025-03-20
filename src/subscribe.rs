@@ -159,18 +159,20 @@ impl Subscriber {
 
                             topic.clone()
                         };
-                        debug!("[sub {}] updated: {data}", sub_id);
+                        debug!("[sub {sub_id}] topic {} updated to {data}", announced_topic.name());
                         Some(ReceivedMessage::Updated((announced_topic, data.clone())))
                     },
                     ClientboundData::Text(ClientboundTextData::Announce(ref announce)) => {
                         let matches = announced_topics.read().await.get_from_id(announce.id).is_some_and(|topic| topic.matches(topics, options));
                         if matches {
+                            debug!("[sub {sub_id}] topic {} announced", announce.name);
                             topic_ids.write().await.insert(announce.id);
                             Some(ReceivedMessage::Announced(announce.into()))
                         } else { None }
                     },
                     ClientboundData::Text(ClientboundTextData::Unannounce(ref unannounce)) => {
                         topic_ids.write().await.remove(&unannounce.id).then(|| {
+                            debug!("[sub {sub_id}] topic {} unannounced", unannounce.name);
                             ReceivedMessage::Unannounced { name: unannounce.name.clone(), id: unannounce.id }
                         })
                     },
@@ -183,6 +185,7 @@ impl Subscriber {
 
                         let topics = announced_topics.read().await;
                         let topic = topics.get_from_id(id).expect("topic exists").clone();
+                        debug!("[sub {sub_id}] topic {} updated properties to {:?}", topic.name(), topic.properties());
                         Some(ReceivedMessage::UpdateProperties(topic))
                     },
                 }

@@ -43,7 +43,7 @@ use time::ext::InstantExt;
 use tokio::{net::TcpStream, select, sync::{broadcast, mpsc, Notify, RwLock}, task::JoinHandle, time::{interval, timeout}};
 use tokio_tungstenite::{tungstenite::{self, http::{Response, Uri}, ClientRequestBuilder, Message}, MaybeTlsStream, WebSocketStream};
 use topic::{collection::TopicCollection, AnnouncedTopic, AnnouncedTopics, Topic};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, trace};
 
 pub mod error;
 pub mod data;
@@ -238,7 +238,7 @@ impl Client {
 
                     let mut time = time.write().await;
                     time.offset = offset;
-                    debug!("updated time, offset = {offset:?}");
+                    trace!("updated time, offset = {offset:?}");
                 }
             }
         })
@@ -304,7 +304,7 @@ impl Client {
                 };
 
                 if let Some(data_frame) = message {
-                    debug!("received message(s): {data_frame:?}");
+                    trace!("received message(s): {data_frame:?}");
                     for data in data_frame {
                         match &data {
                             ClientboundData::Text(ClientboundTextData::Announce(announce)) => {
