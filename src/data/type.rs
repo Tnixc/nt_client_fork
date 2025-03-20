@@ -286,7 +286,7 @@ where D: Deserializer<'de>
 
 pub(super) struct DataTypeVisitor;
 
-impl<'de> Visitor<'de> for DataTypeVisitor {
+impl Visitor<'_> for DataTypeVisitor {
     type Value = DataType;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {

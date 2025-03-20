@@ -119,7 +119,7 @@ impl<T: NetworkTableData> Publisher<T> {
     /// Updates the properties of the topic being subscribed to, returning a `future` that
     /// completes when the server acknowledges the update.
     ///
-    /// A [`SetPropsBuilder`] should be used for easy creation of updated properties.
+    /// A [`UpdateProps`] should be used for easy creation of updated properties.
     ///
     /// # Errors
     /// Returns an error if messages could not be received from the `NetworkTables` server.
@@ -282,7 +282,7 @@ impl UpdateProps {
 
     /// Creates a property update updating certain server-recognized properties.
     ///
-    /// This method differs from [`with_props_unchange`][`Self::with_props_unchange`] because
+    /// This method differs from [`with_props_keep`][`Self::with_props_keep`] because
     /// unlike that method, this method deletes the property if it's [`None`].
     ///
     /// With the `extra` field, if the key is not present in the map, it does not get updated. If

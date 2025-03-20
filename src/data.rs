@@ -90,6 +90,7 @@ pub(crate) struct Unannounce {
 pub(crate) struct PropertiesData {
     pub name: String,
     // BUG: this doesn't seem to ever exist
+    #[expect(dead_code)]
     pub ack: Option<bool>,
     pub update: HashMap<String, Option<serde_json::Value>>,
 }
@@ -214,7 +215,7 @@ where D: Deserializer<'de>
 
 struct DurationMicrosVisitor;
 
-impl<'de> Visitor<'de> for DurationMicrosVisitor {
+impl Visitor<'_> for DurationMicrosVisitor {
     type Value = Duration;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {

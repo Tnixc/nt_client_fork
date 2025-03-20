@@ -256,13 +256,12 @@ impl AnnouncedTopics {
 /// In cases where slashes are present in segment names, turning to and from a [`String`] is
 /// **NOT** guaranteed to preserve segment names.
 ///
-/// ```should_panic
+/// ```
 /// use nt_client::{topic::TopicPath, path};
 ///
 /// let path = path!["///weird//", "na//mes//"];
 ///
-/// // this will panic!
-/// assert_eq!(<String as Into<TopicPath>>::into(path.to_string()), path);
+/// assert_ne!(<String as Into<TopicPath>>::into(path.to_string()), path);
 /// ```
 ///
 /// In the above example, `.to_string()` is converting the path to `////weird///na//mes//`.
