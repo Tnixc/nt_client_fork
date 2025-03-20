@@ -22,6 +22,18 @@
 //! tokio::spawn(async move {
 //!     let mut sub = thing_topic.subscribe(Default::default()).await;
 //!
+//!     loop {
+//!         match sub.recv().await {
+//!             Ok(ReceivedMessage::Updated((_topic, value))) => {
+//!                 println!("topic updated: '{value}'");
+//!             },
+//!             Ok(_) => {},
+//!             Err(err) => {
+//!                 eprintln!("{err}");
+//!                 break;
+//!             },
+//!         }
+//!     }
 //!     while let Ok(ReceivedMessage::Updated((_topic, value))) = sub.recv().await {
 //!         println!("topic updated: '{value}'")
 //!     }
