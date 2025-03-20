@@ -144,6 +144,18 @@ impl Client {
     /// # Errors
     /// Returns an error if something goes wrong when connected to the server.
     pub async fn connect(self) -> Result<(), ConnectError> {
+        self.connect_on_ready(|_| {}).await
+    }
+
+    /// Connects the the `NetworkTables` server, calling a callback once the connection is made.
+    ///
+    /// This future will only complete when the client has disconnected from the server.
+    ///
+    /// # Errors
+    /// Returns an error if something goes wrong when connected to the server.
+    pub async fn connect_on_ready<F>(self, on_ready: F) -> Result<(), ConnectError>
+    where F: FnOnce(&Self)
+    {
         let (ws_stream, _) = if let Some(secure_port) = self.options.secure_port {
             match self.try_connect("wss", secure_port).await {
                 Ok(ok) => ok,
@@ -153,6 +165,8 @@ impl Client {
         } else {
             self.try_connect("ws", self.options.unsecure_port).await?
         };
+
+        on_ready(&self);
 
         let (write, read) = ws_stream.split();
 

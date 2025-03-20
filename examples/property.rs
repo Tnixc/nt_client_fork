@@ -9,6 +9,10 @@ use serde_json::json;
 async fn main() {
     let client = Client::new(Default::default());
 
+    client.connect_on_ready(setup).await.unwrap()
+}
+
+fn setup(client: &Client) {
     let topic = client.topic("/mytopic");
     tokio::spawn(async move {
         let mut extra_props = HashMap::new();
@@ -34,7 +38,5 @@ async fn main() {
         // everything else is unset (including the `custom` property)
         publisher.update_props(updated).await.unwrap();
     });
-
-    client.connect().await.unwrap()
 }
 

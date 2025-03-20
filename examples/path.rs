@@ -8,6 +8,10 @@ use nt_client::{data::SubscriptionOptions, path, subscribe::ReceivedMessage, top
 async fn main() {
     let client = Client::new(Default::default());
 
+    client.connect_on_ready(setup).await.unwrap()
+}
+
+fn setup(client: &Client) {
     // using the path! macro, we can create slash (/) delimited path names
     // path! macro evaluates to a TopicPath, and stringified it is `/my/long/path`
     let mut path = path!["my", "long", "path"];
@@ -42,7 +46,5 @@ async fn main() {
             counter += 1;
         }
     });
-
-    client.connect().await.unwrap()
 }
 

@@ -13,11 +13,14 @@ async fn main() {
 
     let client = Client::new(NewClientOptions { 
         addr: NTAddr::Local,
-        // custom WSL ip
-        // addr: NTAddr::Custom(Ipv4Addr::new(172, 30, 64, 1)),
+        secure_port: None,
         ..Default::default()
     });
 
+    client.connect_on_ready(setup).await.unwrap();
+}
+
+fn setup(client: &Client) {
     // subscribes to `/topic` and prints all changes to stdout
     // changes include the announcement of a topic, an updated value, and an unannouncement of a topic
     let sub_topic = client.topic("/topic");
@@ -61,7 +64,5 @@ async fn main() {
             publisher.set(counter).await.expect("connection is still alive");
         }
     });
-
-    client.connect().await.unwrap();
 }
 
