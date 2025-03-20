@@ -42,7 +42,7 @@ use futures_util::{stream::{SplitSink, SplitStream}, Future, SinkExt, StreamExt,
 use time::ext::InstantExt;
 use tokio::{net::TcpStream, select, sync::{broadcast, mpsc, Notify, RwLock}, task::JoinHandle, time::{interval, timeout}};
 use tokio_tungstenite::{tungstenite::{self, http::{Response, Uri}, ClientRequestBuilder, Message}, MaybeTlsStream, WebSocketStream};
-use topic::{collection::TopicCollection, AnnouncedTopics, Topic};
+use topic::{collection::TopicCollection, AnnouncedTopic, AnnouncedTopics, Topic};
 use tracing::{debug, error, info};
 
 pub mod error;
@@ -109,11 +109,14 @@ impl Client {
         self.time.clone()
     }
 
-    /// Returns a map of server announced topics for this client.
-    ///
-    /// This can be safely used asynchronously and across different threads.
-    pub fn announced_topics(&self) -> Arc<RwLock<AnnouncedTopics>> {
-        self.announced_topics.clone()
+    /// Returns an announced topic from its id.
+    pub async fn announced_topic_from_id(&self, id: i32) -> Option<AnnouncedTopic> {
+        self.announced_topics.read().await.get_from_id(id).cloned()
+    }
+
+    /// Returns an announced topic from its name.
+    pub async fn announced_topic_from_name(&self, name: &str) -> Option<AnnouncedTopic> {
+        self.announced_topics.read().await.get_from_name(name).cloned()
     }
 
     /// Returns a new topic with a given name.
@@ -149,7 +152,7 @@ impl Client {
         let (update_time_sender, update_time_recv) = mpsc::channel(1);
         let update_time_task = Client::start_update_time_task(self.options.update_time_interval, self.time(), self.send_ws.0.clone(), update_time_recv);
 
-        let announced_topics = self.announced_topics();
+        let announced_topics = self.announced_topics.clone();
         let write_task = Client::start_write_task(self.send_ws.1, write);
         let read_task = Client::start_read_task(read, update_time_sender, pong_notify_send, announced_topics, self.recv_ws.0);
 
