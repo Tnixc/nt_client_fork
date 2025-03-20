@@ -104,6 +104,9 @@ impl Topic {
     /// method wihout already connecting the [`Client`] will cause it to hang forever. Solving this
     /// requires running this method in a separate thread, through something like [`tokio::spawn`].
     ///
+    /// # Errors
+    /// Returns an error if a publisher could not be made to the server.
+    ///
     /// [`Client`]: crate::Client
     pub async fn publish<T: NetworkTableData>(&self, properties: Properties) -> Result<Publisher<T>, NewPublisherError> {
         Publisher::new(self.name.clone(), properties, self.time.clone(), self.send_ws.clone(), self.recv_ws.subscribe()).await

@@ -145,6 +145,9 @@ impl Client {
     /// Connects to the `NetworkTables` server.
     ///
     /// This future will only complete when the client has disconnected from the server.
+    ///
+    /// # Errors
+    /// Returns an error if something goes wrong when connected to the server.
     pub async fn connect(self) -> Result<(), ConnectError> {
         let (ws_stream, _) = if let Some(secure_port) = self.options.secure_port {
             match self.try_connect("wss", secure_port).await {
@@ -452,6 +455,9 @@ impl Default for NTAddr {
 
 impl NTAddr {
     /// Converts this into an [`Ipv4Addr`].
+    ///
+    /// # Errors
+    /// Returns an error if the [`TeamNumber`][`NTAddr::TeamNumber`] team number is greater than 25599.
     pub fn into_addr(self) -> Result<Ipv4Addr, IntoAddrError> {
         let addr = match self {
             NTAddr::TeamNumber(team_number) => {

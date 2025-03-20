@@ -100,6 +100,9 @@ impl<T: NetworkTableData> Publisher<T> {
 
     /// Publish a new value to the [`Topic`].
     ///
+    /// # Errors
+    /// Returns an error if the client is disconnected.
+    ///
     /// [`Topic`]: crate::topic::Topic
     pub async fn set(&self, value: T) -> Result<(), ConnectionClosedError> {
         let time = self.time.read().await;
@@ -110,6 +113,9 @@ impl<T: NetworkTableData> Publisher<T> {
     ///
     /// This default value will only be seen by other clients and the server if no other value has
     /// been published to the [`Topic`] yet.
+    ///
+    /// # Errors
+    /// Returns an error if the client is disconnected.
     ///
     /// [`Topic`]: crate::topic::Topic
     pub async fn set_default(&self, value: T) -> Result<(), ConnectionClosedError> {
