@@ -404,7 +404,9 @@ impl Subscriber {
         }
         Ok(())
     }
-        
+    
+    /// Receives the next value for this subscriber.       
+    /// 
     /// Topics that have already been announced will not be received by this method. To view
     /// all topics that are being subscribed to, use the [`topics`][`Self::topics`] method.
     ///
