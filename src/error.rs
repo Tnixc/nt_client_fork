@@ -1,9 +1,11 @@
 //! `NetworkTables` client error types.
 
-use std::error::Error;
+use std::{error::Error, sync::Arc};
 
-use tokio::task::JoinError;
+use tokio::{sync::broadcast, task::JoinError};
 use tokio_tungstenite::tungstenite;
+
+use crate::ServerboundMessage;
 
 /// Error that means the `NetworkTables` connection was closed.
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq, Hash)]
@@ -152,6 +154,20 @@ impl From<ConnectError> for ReconnectError {
             ConnectError::WebsocketError(tungstenite::Error::Io(error)) => Self::Fatal(error.into()),
             err => Self::Nonfatal(err.into()),
         }
+    }
+}
+
+/// Errors that can occur when modifying a subscription.
+#[derive(thiserror::Error, Debug, Clone, PartialEq, Eq, Hash)]
+pub enum SubscriptionModifyError {
+    /// The network connection was closed.
+    #[error("the network connection was closed")]
+    ConnectionClosed,
+}
+
+impl From<broadcast::error::SendError<Arc<ServerboundMessage>>> for SubscriptionModifyError {
+    fn from(_: broadcast::error::SendError<Arc<ServerboundMessage>>) -> Self {
+        Self::ConnectionClosed
     }
 }
 

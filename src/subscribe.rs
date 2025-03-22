@@ -43,7 +43,7 @@ use futures_util::future::join_all;
 use tokio::sync::{broadcast, RwLock};
 use tracing::debug;
 
-use crate::{data::{BinaryData, ClientboundData, ClientboundTextData, PropertiesData, ServerboundMessage, ServerboundTextData, Subscribe, SubscriptionOptions, Unsubscribe}, recv_until_async, topic::{AnnouncedTopic, AnnouncedTopics}, NTClientReceiver, NTServerSender};
+use crate::{data::{BinaryData, ClientboundData, ClientboundTextData, PropertiesData, ServerboundMessage, ServerboundTextData, Subscribe, SubscriptionOptions, Unsubscribe}, error::SubscriptionModifyError, recv_until_async, topic::{AnnouncedTopic, AnnouncedTopics}, NTClientReceiver, NTServerSender};
 
 /// A `NetworkTables` subscriber that subscribes to a [`Topic`].
 ///
@@ -131,8 +131,280 @@ impl Subscriber {
         join_all(mapped_futures).await.into_iter().collect()
     }
 
-    /// Receives the next value for this subscriber.
+    /// Adds a new topic to this subscription.
     ///
+    /// This allows dynamically expanding a subscription to include additional topics
+    /// while the client is connected.
+    ///
+    /// # Errors
+    /// Returns an error if the connection to the server is closed.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use nt_client::{Client, subscribe::ReceivedMessage};
+    ///
+    /// # tokio_test::block_on(async {
+    /// let client = Client::new(Default::default());
+    ///
+    /// let topic = client.topic("/initial/topic");
+    /// tokio::spawn(async move {
+    ///     let mut subscriber = topic.subscribe(Default::default()).await;
+    ///
+    ///     // Listen for a while
+    ///     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    ///
+    ///     // Add another topic to the subscription
+    ///     subscriber.add_topic("/new/topic".to_string()).await.unwrap();
+    ///
+    ///     // Now we'll receive updates for both topics
+    /// });
+    ///
+    /// client.connect().await.unwrap();
+    /// # });
+    /// ```
+    pub async fn add_topic(
+        &mut self,
+        topic: String,
+    ) -> Result<(), SubscriptionModifyError> {
+        debug!("[sub {}] adding topic `{}`", self.id, topic);
+
+        // Add to our local topics list
+        self.topics.push(topic.clone());
+
+        // Create a new subscription message for just this topic
+        let sub_message = ServerboundTextData::Subscribe(Subscribe {
+            topics: vec![topic],
+            subuid: self.id,
+            options: self.options.clone(),
+        });
+
+        self.ws_sender
+            .send(ServerboundMessage::Text(sub_message).into())
+            .map_err(|_| SubscriptionModifyError::ConnectionClosed)?;
+        
+        // Update local topic IDs for any already-announced topics that match
+        let announced_topics = self.announced_topics.read().await;
+        let mut topic_ids = self.topic_ids.write().await;
+
+        // Find any announced topics that now match our subscription
+        for topic in announced_topics.id_values() {
+            if topic.matches(&self.topics, &self.options) && !topic_ids.contains(&topic.id()) {
+                topic_ids.insert(topic.id());
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Adds multiple topics to this subscription at once.
+    ///
+    /// This is a convenience method that calls `add_topic` for each topic in the provided list.
+    ///
+    /// # Errors
+    /// Returns an error if the connection to the server is closed.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use nt_client::{Client, subscribe::ReceivedMessage};
+    ///
+    /// # tokio_test::block_on(async {
+    /// let client = Client::new(Default::default());
+    ///
+    /// let topic = client.topic("/initial/topic");
+    /// tokio::spawn(async move {
+    ///     let mut subscriber = topic.subscribe(Default::default()).await;
+    ///
+    ///     // Add multiple topics at once
+    ///     subscriber.add_topics(vec![
+    ///         "/new/topic1".to_string(),
+    ///         "/new/topic2".to_string(),
+    ///     ]).await.unwrap();
+    /// });
+    ///
+    /// client.connect().await.unwrap();
+    /// # });
+    /// ```
+    pub async fn add_topics(
+        &mut self,
+        topics: Vec<String>,
+    ) -> Result<(), SubscriptionModifyError> {
+        if topics.is_empty() {
+            return Ok(());
+        }
+
+        debug!("[sub {}] adding topics `{:?}`", self.id, topics);
+
+        // Add to our local topics list
+        self.topics.extend(topics.clone());
+
+        // Create a new subscription message for these topics
+        let sub_message = ServerboundTextData::Subscribe(Subscribe {
+            topics,
+            subuid: self.id,
+            options: self.options.clone(),
+        });
+
+        self.ws_sender
+            .send(ServerboundMessage::Text(sub_message).into())
+            .map_err(|_| SubscriptionModifyError::ConnectionClosed)?;
+        
+        // Update local topic IDs for any already-announced topics that match
+        let announced_topics = self.announced_topics.read().await;
+        let mut topic_ids = self.topic_ids.write().await;
+
+        // Find any announced topics that now match our subscription
+        for topic in announced_topics.id_values() {
+            if topic.matches(&self.topics, &self.options) && !topic_ids.contains(&topic.id()) {
+                topic_ids.insert(topic.id());
+            }
+        }
+
+        Ok(())
+    }
+    
+    /// Removes a topic from this subscription.
+    ///
+    /// This allows dynamically reducing a subscription to exclude specific topics
+    /// while the client is connected.
+    ///
+    /// # Errors
+    /// Returns an error if the connection to the server is closed.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use nt_client::{Client, subscribe::ReceivedMessage};
+    ///
+    /// # tokio_test::block_on(async {
+    /// let client = Client::new(Default::default());
+    ///
+    /// let topics = client.topics(vec![
+    ///     "/topic1".to_string(),
+    ///     "/topic2".to_string()
+    /// ]);
+    /// tokio::spawn(async move {
+    ///     let mut subscriber = topics.subscribe(Default::default()).await;
+    ///
+    ///     // Listen for both topics
+    ///     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    ///
+    ///     // Remove one topic from the subscription
+    ///     subscriber.remove_topic("/topic1".to_string()).await.unwrap();
+    ///
+    ///     // Now we'll only receive updates for /topic2
+    /// });
+    ///
+    /// client.connect().await.unwrap();
+    /// # });
+    /// ```
+    pub async fn remove_topic(
+        &mut self,
+        topic: String,
+    ) -> Result<(), SubscriptionModifyError> {
+        debug!("[sub {}] removing topic `{}`", self.id, topic);
+        if let Some(pos) = self.topics.iter().position(|t| t == &topic) {
+            self.topics.remove(pos);
+        }
+        let sub_message = ServerboundTextData::Subscribe(Subscribe {
+            topics: self.topics.clone(),
+            subuid: self.id,
+            options: self.options.clone(),
+        });
+        
+        self.ws_sender
+            .send(ServerboundMessage::Text(sub_message).into())
+            .map_err(|_| SubscriptionModifyError::ConnectionClosed)?;
+        
+        let announced_topics = self.announced_topics.read().await;
+        let mut topic_ids = self.topic_ids.write().await;
+        let topics_to_remove: Vec<i32> = topic_ids
+            .iter()
+            .filter(|id| {
+                if let Some(topic) = announced_topics.get_from_id(**id) {
+                    !topic.matches(&self.topics, &self.options)
+                } else {
+                    false
+                }
+            })
+            .copied()
+            .collect();
+        for id in topics_to_remove {
+            topic_ids.remove(&id);
+        }
+    
+        Ok(())
+    }
+    
+    /// Removes multiple topics from this subscription at once.
+    ///
+    /// This is a convenience method that calls `remove_topic` for each topic in the provided list.
+    ///
+    /// # Errors
+    /// Returns an error if the connection to the server is closed.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use nt_client::{Client, subscribe::ReceivedMessage};
+    ///
+    /// # tokio_test::block_on(async {
+    /// let client = Client::new(Default::default());
+    ///
+    /// let topics = client.topics(vec![
+    ///     "/topic1".to_string(),
+    ///     "/topic2".to_string(),
+    ///     "/topic3".to_string()
+    /// ]);
+    /// tokio::spawn(async move {
+    ///     let mut subscriber = topics.subscribe(Default::default()).await;
+    ///
+    ///     // Remove multiple topics at once
+    ///     subscriber.remove_topics(vec![
+    ///         "/topic1".to_string(),
+    ///         "/topic2".to_string(),
+    ///     ]).await.unwrap();
+    ///
+    ///     // Now we'll only receive updates for /topic3
+    /// });
+    ///
+    /// client.connect().await.unwrap();
+    /// # });
+    /// ```
+    pub async fn remove_topics(
+        &mut self,
+        topics: Vec<String>,
+    ) -> Result<(), SubscriptionModifyError> {
+        if topics.is_empty() {
+            return Ok(());
+        }
+        debug!("[sub {}] removing topics `{:?}`", self.id, topics);
+        self.topics.retain(|t| !topics.contains(t));
+        let sub_message = ServerboundTextData::Subscribe(Subscribe {
+            topics: self.topics.clone(),
+            subuid: self.id,
+            options: self.options.clone(),
+        });
+        self.ws_sender
+            .send(ServerboundMessage::Text(sub_message).into())
+            .map_err(|_| SubscriptionModifyError::ConnectionClosed)?;
+        
+        let announced_topics = self.announced_topics.read().await;
+        let mut topic_ids = self.topic_ids.write().await;
+        let topics_to_remove: Vec<i32> = topic_ids
+            .iter()
+            .filter(|id| {
+                if let Some(topic) = announced_topics.get_from_id(**id) {
+                    !topic.matches(&self.topics, &self.options)
+                } else {
+                    false
+                }
+            })
+            .copied()
+            .collect();
+        for id in topics_to_remove {
+            topic_ids.remove(&id);
+        }
+        Ok(())
+    }
+        
     /// Topics that have already been announced will not be received by this method. To view
     /// all topics that are being subscribed to, use the [`topics`][`Self::topics`] method.
     ///
