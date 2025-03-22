@@ -169,6 +169,9 @@ pub enum DataType {
     /// [`Vec<String>`] data type.
     #[serde(rename = "string[]")]
     StringArray,
+    /// Catch-all for future or unknown data types.
+    #[serde(other)]
+    Unknown,
 }
 
 impl DataType {
@@ -202,6 +205,7 @@ impl DataType {
     ///
     /// It is guaranteed that the id mappings here match with the id mappings in
     /// [`from_id`](Self::from_id).
+    /// For unknown data types, this returns [u32::MAX](u32::MAX)
     pub fn as_id(&self) -> u32 {
         use DataType as D;
 
@@ -217,6 +221,7 @@ impl DataType {
             D::IntArray => 18,
             D::FloatArray => 19,
             D::StringArray => 20,
+            D::Unknown => u32::MAX
         }
     }
 }
